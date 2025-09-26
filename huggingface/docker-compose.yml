@@ -1,0 +1,13 @@
+services:
+  huggingface_reranker:
+    build: ./huggingface_reranker
+    container_name: huggingface_reranker
+    networks:
+      - chatbot_network
+    volumes:
+      - huggingface_cache:/app/.cache
+    restart: unless-stopped
+
+volumes:
+  huggingface_cache:
+    driver: local
