@@ -20,11 +20,11 @@ RUN apt update && apt install -y \
     git \
     vim \
     sudo \
-    ttyd \
+    #ttyd \
     && apt clean && rm -rf /var/lib/apt/lists/*
 
 # Instalar herramientas modernas (opcional)
-RUN pip3 install requests beautifulsoup4
+RUN pip3 install requests beautifulsoup4 --break-system-packages
 
 # Crear usuario kali
 RUN useradd -m -s /bin/bash kali && \

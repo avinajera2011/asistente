@@ -1,6 +1,7 @@
 services:
   nginx:
     build: ./nginx
+    container_name: devsecops_nginx
     ports:
       - "80:80"
     restart: unless-stopped
@@ -10,9 +11,11 @@ services:
       - webgoat
       - zap
       - kali
+      - sonarqube
 
   dvwa:
     image: vulnerables/web-dvwa
+    container_name: dvwa_target
     expose:
       - "80"
     restart: unless-stopped
@@ -26,6 +29,7 @@ services:
 
   juice-shop:
     image: bkimminich/juice-shop
+    container_name: juiceshop_target
     expose:
       - "3000"
     restart: unless-stopped
@@ -36,7 +40,8 @@ services:
       retries: 5
 
   webgoat:
-    image: webgoat/webgoat-8.2
+    image: webgoat/webgoat:latest
+    container_name: webgoat_target
     expose:
       - "8080"
     restart: unless-stopped
@@ -47,7 +52,8 @@ services:
       retries: 5
 
   zap:
-    image: owasp/zap2docker-stable
+    image: ghcr.io/zaproxy/zaproxy:stable
+    container_name: zap_scanner
     expose:
       - "8080"
     command: >
@@ -62,6 +68,7 @@ services:
 
   scanner:
     build: ./kali
+    container_name: zap_automation
     volumes:
       - ./scripts/zap-scan.py:/zap-scan.py
       - ./data/zap-reports:/zap-reports
@@ -74,26 +81,32 @@ services:
     restart: on-failure
 
   metasploit:
-    image: metasploitframework/metasploit
+    image: metasploitframework/metasploit-framework
+    container_name: metasploit_console
     depends_on:
-      postgres:
+      postgres_db:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgres://msf:msfpass@postgres:5432/msfdb
+      - DATABASE_URL=postgres://msf:msfpass@postgres_db:5432/msfdb
     stdin_open: true
     tty: true
     restart: unless-stopped
     command: >
       sh -c "sleep 10 && msfdb init && msfconsole"
 
-  postgres:
-    image: postgres:14
+  postgres_db:
+    image: postgres:15
+    container_name: shared_postgres
     environment:
-      POSTGRES_USER: msf
-      POSTGRES_PASSWORD: msfpass
-      POSTGRES_DB: msfdb
+      - POSTGRES_USER=msf
+      - POSTGRES_PASSWORD=msfpass
+      - POSTGRES_DB=msfdb
+      - SONAR_DB_USER=sonar
+      - SONAR_DB_PASSWORD=sonarpass
+      - SONAR_DB_NAME=sonardb
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-sonar-db.sh:/docker-entrypoint-initdb.d/init-sonar-db.sh
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U msf"]
@@ -103,6 +116,7 @@ services:
 
   kali:
     build: ./kali
+    container_name: kali_terminal
     expose:
       - "7681"
     restart: unless-stopped
@@ -114,7 +128,47 @@ services:
     volumes:
       - ./kali/data:/home/kali
       - ./scripts:/scripts:ro
+    command: tail -f /dev/nullza
+
+  sonarqube:
+    image: sonarqube:lts-community
+    container_name: sonarqube_server
+    expose:
+      - "9000"
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+    environment:
+      - SONAR_JDBC_URL=jdbc:postgresql://postgres_db:5432/sonardb
+      - SONAR_JDBC_USERNAME=sonar
+      - SONAR_JDBC_PASSWORD=sonarpass
+    volumes:
+      - sonarqube_conf:/opt/sonarqube/conf
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/api/system/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  sonar-scanner:
+    image: sonarsource/sonar-scanner-cli:latest
+    container_name: sonar_scanner_cli
+    environment:
+      - SONAR_HOST_URL=http://sonarqube:9000
+      # RECUERDA GENERAR Y PEGAR TU TOKEN DE ACCESO DE SONARQUBE AQUÍ
+      - SONAR_LOGIN=sqp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    volumes:
+      - ./sample-code-to-scan:/usr/src
 
 volumes:
   pgdata:
   msfdata:
+  sonarqube_conf:
+  sonarqube_data:
+  sonarqube_extensions:
+  sonarqube_logs:
