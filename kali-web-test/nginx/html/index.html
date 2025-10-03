@@ -1,0 +1,185 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>🎯 Laboratorio de Pruebas de Seguridad</title>
+  <script src="scan.js" defer></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #121212;
+      color: #e0e0e0;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      max-width: 1000px;
+      margin: 40px auto;
+      padding: 20px;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    h1 {
+      color: #bb86fc;
+    }
+    .services {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 40px;
+    }
+    .card {
+      background: #2d2d2d;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+    }
+    .card h3 {
+      margin: 0 0 10px 0;
+      color: #03dac6;
+    }
+    .card a {
+      color: #bb86fc;
+      text-decoration: none;
+      font-weight: bold;
+    }
+    .card a:hover {
+      color: #cf9fff;
+    }
+
+    .action {
+      background: #1e1e1e;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 30px;
+    }
+    button {
+      padding: 12px 24px;
+      font-size: 16px;
+      background: #03dac6;
+      color: black;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    button:hover {
+      background: #02bbaa;
+    }
+    button:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+
+    #scanLog {
+      background: #000;
+      color: #0f0;
+      padding: 15px;
+      border-radius: 6px;
+      height: 300px;
+      overflow-y: auto;
+      font-family: monospace;
+      margin-top: 10px;
+    }
+
+    .vulns {
+      background: #1e1e1e;
+      padding: 20px;
+      border-radius: 8px;
+    }
+    .vuln-item {
+      background: #2d2d2d;
+      margin: 10px 0;
+      padding: 12px;
+      border-radius: 6px;
+      border-left: 4px solid #cf6679;
+    }
+    .vuln-title {
+      font-weight: bold;
+      color: #cf6679;
+    }
+    footer {
+      text-align: center;
+      margin-top: 50px;
+      color: #666;
+      font-size: 0.9em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎯 Laboratorio de Pruebas de Seguridad</h1>
+      <p>Bienvenido al entorno integrado de pentesting</p>
+    </header>
+
+    <!-- Enlaces a servicios -->
+    <div class="services">
+      <div class="card">
+        <h3>DVWA</h3>
+        <a href="http://localhost:8080" target="_blank">Acceder</a>
+      </div>
+      <div class="card">
+        <h3>Juice Shop</h3>
+        <a href="http://localhost:3000" target="_blank">Acceder</a>
+      </div>
+      <div class="card">
+        <h3>WebGoat</h3>
+        <a href="http://localhost:8082/WebGoat" target="_blank">Acceder</a>
+      </div>
+      <div class="card">
+        <h3>Kali Terminal</h3>
+        <a href="http://localhost:7681" target="_blank">Terminal Web</a>
+      </div>
+    </div>
+
+    <!-- Escaneo automático -->
+    <div class="action">
+      <h2>🔍 Escaneo Automático con ZAP</h2>
+      <button id="scanBtn" onclick="startScan()">Iniciar Escaneo ZAP</button>
+      <div id="scanLog"></div>
+    </div>
+
+    <!-- Vulnerabilidades -->
+    <div class="vulns">
+      <h2>🚨 Vulnerabilidades Encontradas</h2>
+      <p id="vulnList">Aún no se han encontrado vulnerabilidades. Inicia un escaneo.</p>
+    </div>
+
+    <footer>
+      ⚠️ Solo para uso educativo. No atacar sistemas sin permiso.
+    </footer>
+  </div>
+
+  <script>
+    // Actualizar lista de vulnerabilidades cada 10 segundos
+    setInterval(async () => {
+      try {
+        const res = await fetch('http://localhost:8081/JSON/core/view/alerts/?baseurl=http://dvwa:80');
+        if (res.ok) {
+          const data = await res.json();
+          const alerts = data.alerts || [];
+          const list = document.getElementById("vulnList");
+          if (alerts.length === 0) {
+            list.innerHTML = "<p>Ninguna vulnerabilidad encontrada aún.</p>";
+          } else {
+            list.innerHTML = alerts.slice(0, 10).map(a => 
+              <div class="vuln-item">
+                <div class="vuln-title">${a.alert}</div>
+                <div><strong>Riesgo:</strong> ${a.risk}</div>
+                <div><strong>URL:</strong> ${a.url}</div>
+              </div>
+            ).join('');
+          }
+        }
+      } catch (e) {
+        // No hacer nada si ZAP no está listo
+      }
+    }, 10000);
+  </script>
+</body>
+</html>

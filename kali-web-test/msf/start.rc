@@ -1,0 +1,8 @@
+# /tmp/start.rc
+db_connect msf:msfpass@postgres:5432/msfdb
+setg RHOSTS 127.0.0.1
+setg RPORT 80
+spool /tmp/msf.log
+use auxiliary/scanner/portscan/tcp
+set RHOSTS 172.20.0.0/24
+run

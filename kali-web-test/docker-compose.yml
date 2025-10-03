@@ -1,0 +1,120 @@
+services:
+  nginx:
+    build: ./nginx
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    depends_on:
+      - dvwa
+      - juice-shop
+      - webgoat
+      - zap
+      - kali
+
+  dvwa:
+    image: vulnerables/web-dvwa
+    expose:
+      - "80"
+    restart: unless-stopped
+    environment:
+      - PHP_SELF=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/login.php"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  juice-shop:
+    image: bkimminich/juice-shop
+    expose:
+      - "3000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  webgoat:
+    image: webgoat/webgoat-8.2
+    expose:
+      - "8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/WebGoat/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  zap:
+    image: owasp/zap2docker-stable
+    expose:
+      - "8080"
+    command: >
+      zap.sh -daemon -port 8080 -host 0.0.0.0
+      -config api.addrs.addr.name=.*
+      -config api.addrs.addr.regex=true
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ./data/zap-reports:/zap-reports
+
+  scanner:
+    build: ./kali
+    volumes:
+      - ./scripts/zap-scan.py:/zap-scan.py
+      - ./data/zap-reports:/zap-reports
+    depends_on:
+      - zap
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: >
+      sh -c "pip3 install requests && python3 /zap-scan.py"
+    restart: on-failure
+
+  metasploit:
+    image: metasploitframework/metasploit
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://msf:msfpass@postgres:5432/msfdb
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    command: >
+      sh -c "sleep 10 && msfdb init && msfconsole"
+
+  postgres:
+    image: postgres:14
+    environment:
+      POSTGRES_USER: msf
+      POSTGRES_PASSWORD: msfpass
+      POSTGRES_DB: msfdb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U msf"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kali:
+    build: ./kali
+    expose:
+      - "7681"
+    restart: unless-stopped
+    security_opt:
+      - seccomp:unconfined
+    cap_add:
+      - NET_ADMIN
+      - SYS_PTRACE
+    volumes:
+      - ./kali/data:/home/kali
+      - ./scripts:/scripts:ro
+
+volumes:
+  pgdata:
+  msfdata:
