@@ -1,0 +1,402 @@
+--- Contenido del Proyecto Exportado el 2025-10-07 13:01:31 ---
+
+
+// --- ./README.md ---
+
+
+
+// --- ./docker-compose.yml ---
+
+services:
+  nginx:
+    build: ./nginx
+    container_name: devsecops_nginx
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    depends_on:
+      - dvwa
+      - juice-shop
+      - webgoat
+      - zap
+      - kali
+      - sonarqube
+
+  dvwa:
+    image: vulnerables/web-dvwa
+    container_name: dvwa_target
+    expose:
+      - "80"
+    restart: unless-stopped
+    environment:
+      - PHP_SELF=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/login.php"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  juice-shop:
+    image: bkimminich/juice-shop
+    container_name: juiceshop_target
+    expose:
+      - "3000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  webgoat:
+    image: webgoat/webgoat:latest
+    container_name: webgoat_target
+    expose:
+      - "8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/WebGoat/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    container_name: zap_scanner
+    expose:
+      - "8080"
+    command: >
+      zap.sh -daemon -port 8080 -host 0.0.0.0
+      -config api.addrs.addr.name=.*
+      -config api.addrs.addr.regex=true
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ./data/zap-reports:/zap-reports
+
+  scanner:
+    build: ./kali
+    container_name: zap_automation
+    volumes:
+      - ./scripts/zap-scan.py:/zap-scan.py
+      - ./data/zap-reports:/zap-reports
+    depends_on:
+      - zap
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: >
+      sh -c "pip3 install requests && python3 /zap-scan.py"
+    restart: on-failure
+
+  metasploit:
+    image: metasploitframework/metasploit-framework
+    container_name: metasploit_console
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://msf:msfpass@postgres_db:5432/msfdb
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    command: >
+      sh -c "sleep 10 && msfdb init && msfconsole"
+
+  postgres_db:
+    image: postgres:15
+    container_name: shared_postgres
+    environment:
+      - POSTGRES_USER=msf
+      - POSTGRES_PASSWORD=msfpass
+      - POSTGRES_DB=msfdb
+      - SONAR_DB_USER=sonar
+      - SONAR_DB_PASSWORD=sonarpass
+      - SONAR_DB_NAME=sonardb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-sonar-db.sh:/docker-entrypoint-initdb.d/init-sonar-db.sh
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U msf"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kali:
+    build: ./kali
+    container_name: kali_terminal
+    expose:
+      - "7681"
+    restart: unless-stopped
+    security_opt:
+      - seccomp:unconfined
+    cap_add:
+      - NET_ADMIN
+      - SYS_PTRACE
+    volumes:
+      - ./kali/data:/home/kali
+      - ./scripts:/scripts:ro
+    command: tail -f /dev/null
+
+  sonarqube:
+    image: sonarqube:lts-community
+    container_name: sonarqube_server
+    expose:
+      - "9000"
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+    environment:
+      - SONAR_JDBC_URL=jdbc:postgresql://postgres_db:5432/sonardb
+      - SONAR_JDBC_USERNAME=sonar
+      - SONAR_JDBC_PASSWORD=sonarpass
+    volumes:
+      - sonarqube_conf:/opt/sonarqube/conf
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/api/system/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  sonar-scanner:
+    image: sonarsource/sonar-scanner-cli:latest
+    container_name: sonar_scanner_cli
+    environment:
+      - SONAR_HOST_URL=http://sonarqube:9000
+      # RECUERDA GENERAR Y PEGAR TU TOKEN DE ACCESO DE SONARQUBE AQUÍ
+      - SONAR_LOGIN=sqp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    volumes:
+      - ./sample-code-to-scan:/usr/src
+
+volumes:
+  pgdata:
+  msfdata:
+  sonarqube_conf:
+  sonarqube_data:
+  sonarqube_extensions:
+  sonarqube_logs:
+
+// --- ./nginx/auth.conf ---
+
+mkdir -p nginx/html
+cat > nginx/auth.conf << 'EOF'
+location / {
+    auth_basic "Acceso restringido";
+    auth_basic_user_file /usr/share/nginx/html/.htpasswd;
+    root /usr/share/nginx/html;
+    index index.html;
+}
+EOF
+
+// --- ./nginx/entrypoint.sh ---
+
+#!/bin/sh
+set -e
+
+# Contraseña y hash predefinidos
+ADMIN_USER="admin"
+ADMIN_PASSWORD="admin*2025"
+SALT="7j3H0Y0u"  # Sal fijo para reproducibilidad en laboratorio
+ADMIN_PASSWORD_HASH="$apr1$7j3H0Y0u$V8c7w3B9L6W0V9e1Y7z9Q0"
+
+# Función para crear usuario
+create_user() {
+    echo "Creando usuario: ${ADMIN_USER} ..."
+    echo "${ADMIN_USER}:${ADMIN_PASSWORD_HASH}" > /usr/share/nginx/html/.htpasswd
+    echo "Usuario creado: ${ADMIN_USER} | Contraseña: ${ADMIN_PASSWORD}"
+}
+
+# Si el archivo .htpasswd no existe, creamos el usuario
+if [ ! -f /usr/share/nginx/html/.htpasswd ]; then
+    create_user
+else
+    # Verificamos si el usuario existe en el archivo
+    if grep -q "^${ADMIN_USER}:" /usr/share/nginx/html/.htpasswd; then
+        echo "Usuario ${ADMIN_USER} ya existe. Usando credenciales existentes."
+    else
+        echo "Agregando usuario ${ADMIN_USER}..."
+        echo "${ADMIN_USER}:${ADMIN_PASSWORD_HASH}" >> /usr/share/nginx/html/.htpasswd
+        echo "Usuario agregado: ${ADMIN_USER} | Contraseña: ${ADMIN_PASSWORD}"
+    fi
+fi
+
+# Iniciar Nginx
+exec nginx -g "daemon off;"
+
+
+// --- ./nginx/html/auth.conf ---
+
+location / {
+    auth_basic "Acceso restringido";
+    auth_basic_user_file /usr/share/nginx/html/.htpasswd;
+    root /usr/share/nginx/html;
+    index index.html;
+}
+
+
+// --- ./nginx/nginx.conf ---
+
+# nginx.conf
+
+worker_processes auto;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    sendfile        on;
+    keepalive_timeout  65;
+
+    # DNS interno de Docker para resolver nombres de servicio
+    resolver 127.0.0.11 valid=30s;
+
+    server {
+        listen 80;
+        server_name localhost;
+        server_tokens off;
+
+        # ---- Página de Inicio del Laboratorio ----
+        location = / {
+            root /usr/share/nginx/html;
+            index index.html;
+        }
+
+        # ---- Enrutamiento a DVWA ----
+        location /dvwa/ {
+            proxy_pass http://dvwa:80/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # ---- Enrutamiento a Juice Shop ----
+        location /juice-shop/ {
+            proxy_pass http://juice-shop:3000/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # ---- Enrutamiento a WebGoat ----
+        location /webgoat/ {
+            # WebGoat necesita que se reescriba la ruta
+            rewrite ^/webgoat/(.*)$ /WebGoat/$1 break;
+            proxy_pass http://webgoat:8080;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # ---- Enrutamiento a SonarQube ----
+        location /sonarqube/ {
+            proxy_pass http://sonarqube:9000/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # ---- Enrutamiento a la API de ZAP (Opcional, para control externo) ----
+        location /zap-api/ {
+            proxy_pass http://zap:8080/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+}
+
+// --- ./scripts/init-sonar-db.sh ---
+
+#!/bin/bash
+set -e
+
+# Realiza la creación del usuario y la base de datos para SonarQube
+# Las variables de entorno SONAR_DB_USER, etc., son pasadas desde el docker-compose.yml
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+    CREATE USER $SONAR_DB_USER WITH PASSWORD '$SONAR_DB_PASSWORD';
+    CREATE DATABASE $SONAR_DB_NAME;
+    GRANT ALL PRIVILEGES ON DATABASE $SONAR_DB_NAME TO $SONAR_DB_USER;
+EOSQL
+
+// --- ./scripts/zap-scan.py ---
+
+#!/usr/bin/env python3
+
+import requests
+import time
+import json
+import sys
+
+ZAP_API = "http://zap:8080"
+TARGET = "http://dvwa:80"
+
+def wait_for_zap():
+    print("[*] Esperando a que ZAP esté listo...")
+    for _ in range(60):
+        try:
+            res = requests.get(f"{ZAP_API}/JSON/core/view/version")
+            if res.status_code == 200:
+                print("[+] ZAP está listo")
+                return True
+        except:
+            time.sleep(2)
+    return False
+
+def start_scan():
+    print(f"[*] Iniciando escaneo en: {TARGET}")
+    res = requests.post(f"{ZAP_API}/JSON/ascan/action/scan/", data={
+        "url": TARGET
+    })
+    if res.status_code != 200:
+        print("Error al iniciar escaneo")
+        return None
+    scan_id = res.json().get('scan')
+    print(f"[+] Escaneo iniciado con ID: {scan_id}")
+    return scan_id
+
+def wait_for_completion(scan_id):
+    print("[*] Esperando a que termine el escaneo...")
+    while True:
+        res = requests.get(f"{ZAP_API}/JSON/ascan/view/status/?scanId={scan_id}")
+        status = res.json().get('status', '0')
+        print(f"    Progreso: {status}%")
+        if int(status) >= 100:
+            break
+        time.sleep(5)
+
+def get_alerts():
+    print("[*] Obteniendo vulnerabilidades...")
+    res = requests.get(f"{ZAP_API}/JSON/core/view/alerts/?baseurl={TARGET}")
+    alerts = res.json().get('alerts', [])
+    return alerts
+
+def save_report(alerts):
+    with open("/zap-reports/latest.json", "w") as f:
+        json.dump(alerts, f, indent=2)
+    print(f"[+] Reporte guardado: {len(alerts)} vulnerabilidades encontradas")
+
+if __name__ == "__main__":
+    if wait_for_zap():
+        scan_id = start_scan()
+        if scan_id:
+            wait_for_completion(scan_id)
+            alerts = get_alerts()
+            save_report(alerts)
+            print(f"✅ Escaneo completado. {len(alerts)} vulnerabilidades encontradas.")
+    else:
+        print("[-] No se pudo conectar a ZAP")

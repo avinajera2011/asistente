@@ -76,8 +76,8 @@ services:
       - zap
     environment:
       - PYTHONUNBUFFERED=1
-    command: >
-      sh -c "pip3 install requests && python3 /zap-scan.py"
+    # COMANDO SIMPLIFICADO: Ya no necesita instalar nada, solo ejecutar el script
+    command: python3 /zap-scan.py
     restart: on-failure
 
   metasploit:
@@ -128,7 +128,7 @@ services:
     volumes:
       - ./kali/data:/home/kali
       - ./scripts:/scripts:ro
-    command: tail -f /dev/nullza
+    command: tail -f /dev/null
 
   sonarqube:
     image: sonarqube:lts-community

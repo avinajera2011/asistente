@@ -1,0 +1,7 @@
+{
+    "name": "DevSecOps Lab Codespace",
+    // Puede que ya tenga otras configuraciones aquí, como la imagen, etc.
+    // La parte importante a añadir es 'postCreateCommand'.
+    
+    "postCreateCommand": "sudo sysctl -w vm.max_map_count=262144"
+}

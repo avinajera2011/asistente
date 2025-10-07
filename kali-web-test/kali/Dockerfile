@@ -1,41 +1,21 @@
+# Usar una imagen base de Kali. Usar un tag específico mejora la reproducibilidad.
 FROM kalilinux/kali-rolling
 
-# Instalar herramientas clave
-RUN apt update && apt install -y \
-    nmap \
-    nikto \
-    sqlmap \
-    metasploit-framework \
-    hydra \
-    john \
-    dirb \
-    gobuster \
-    wfuzz \
-    curl \
-    wget \
-    net-tools \
-    iputils-ping \
-    dnsutils \
+# Evitar que las instalaciones soliciten interacción del usuario (non-interactive frontend)
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Actualizar la lista de paquetes e instalar las dependencias necesarias del sistema
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
     python3-pip \
-    git \
-    vim \
-    sudo \
-    #ttyd \
-    && apt clean && rm -rf /var/lib/apt/lists/*
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Instalar herramientas modernas (opcional)
-RUN pip3 install requests beautifulsoup4 --break-system-packages
+# Instalar las librerías de Python requeridas.
+# MODIFICACIÓN CLAVE: Se añade la bandera --break-system-packages para anular
+# la protección PEP 668 de Kali Linux en este entorno de construcción controlado.
+# También se añade --no-cache-dir como buena práctica para reducir el tamaño de la imagen.
+RUN pip3 install --no-cache-dir --break-system-packages requests
 
-# Crear usuario kali
-RUN useradd -m -s /bin/bash kali && \
-    echo "kali:kali" | chpasswd && \
-    adduser kali sudo
-
-# Permitir sudo sin contraseña (solo para lab)
-RUN echo 'kali ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-
-# Exponer puerto ttyd
-EXPOSE 7681
-
-# Iniciar ttyd al arrancar
-CMD ["ttyd", "-p", "7681", "bash"]
+# Establecer un directorio de trabajo por defecto para futuros comandos
+WORKDIR /root
