@@ -17,7 +17,8 @@ FILE_EXTENSIONS_TO_INCLUDE = (
     ".txt",  # Añadido para incluir los archivos de logs que proporcionaste
     ".md",
     ".json",
-    # Añade aquí otras extensiones si es necesario
+    ".html",
+        # Añade aquí otras extensiones si es necesario
 )
 
 # --- INICIO DE LA MODIFICACIÓN (NUEVA SECCIÓN) ---

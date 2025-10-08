@@ -1,16 +1,22 @@
-# Usar una imagen base ligera y específica para Nginx
+# Usamos la imagen oficial de Nginx como base
 FROM nginx:1.25-alpine
 
-# Copiar el archivo de configuración principal de Nginx
-COPY nginx.conf /etc/nginx/nginx.conf
+# --- INICIO DE LA MODIFICACIÓN ---
+# Eliminar la configuración por defecto para evitar el warning de "conflicting server name"
+RUN rm -f /etc/nginx/conf.d/default.conf
+# --- FIN DE LA MODIFICACIÓN ---
 
-# Copiar el script de punto de entrada que crea el usuario de autenticación
-# Se copia a /docker-entrypoint.d/ para que se ejecute automáticamente antes de que Nginx inicie
+# Copiamos nuestra configuración de servidor personalizada
+COPY devsecops.conf /etc/nginx/conf.d/devsecops.conf
+
+# Copiamos el contenido de nuestra carpeta html al directorio raíz web
+COPY ./html/ /usr/share/nginx/html/
+
+# Copiamos nuestro script de entrada que crea el usuario 'admin'
 COPY entrypoint.sh /docker-entrypoint.d/20-setup-auth.sh
 
-# Otorgar permisos de ejecución al script
+# Nos aseguramos de que el script de entrada sea ejecutable
 RUN chmod +x /docker-entrypoint.d/20-setup-auth.sh
 
-# El directorio html/ no contiene nada, pero si tuviera un index.html,
-# se copiaría de la siguiente manera:
-# COPY ./html/ /usr/share/nginx/html/
+EXPOSE 80
+
