@@ -9,7 +9,7 @@ services:
       - dvwa
       - juice-shop
       - webgoat
-      - zap
+      # - zap
       - kali
       - sonarqube
 
@@ -60,24 +60,36 @@ services:
       zap.sh -daemon -port 8080 -host 0.0.0.0
       -config api.addrs.addr.name=.*
       -config api.addrs.addr.regex=true
+      -config api.disablekey=true 
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
     volumes:
       - ./data/zap-reports:/zap-reports
+    healthcheck:
+      # Se dirige a un endpoint específico de la API para una verificación más fiable.
+      test: ["CMD", "curl", "-f", "http://localhost:8080/JSON/core/view/version"]
+      # Aumentamos el intervalo y los reintentos para dar tiempo a ZAP.
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      # MUY IMPORTANTE: Da a ZAP 60 segundos para arrancar antes de que los fallos
+      # del healthcheck se consideren. Esto es crucial para aplicaciones pesadas.
+      start_period: 60s
 
   scanner:
     build: ./kali
     container_name: zap_automation
     volumes:
-      - ./scripts/zap-scan.py:/zap-scan.py
+      - ./scripts:/scripts
       - ./data/zap-reports:/zap-reports
     depends_on:
-      - zap
+      zap:
+        condition: service_healthy
     environment:
       - PYTHONUNBUFFERED=1
     # COMANDO SIMPLIFICADO: Ya no necesita instalar nada, solo ejecutar el script
-    command: python3 /zap-scan.py
+    # command: python3 /zap-scan.py
     restart: on-failure
 
   metasploit:
